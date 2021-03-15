@@ -1,5 +1,6 @@
 extern crate modbus;
 
+use log::{info, warn};
 use modbus::tcp;
 use modbus::Client;
 use std::fs::File;
@@ -358,8 +359,8 @@ pub fn new(device_name: String, servo_name: String) -> Result<AppliedDevice, Str
 
     // The resource location is pretty standard
     let resource_location: String = format!("./thingy/resources/{}.yaml", device_name);
-    println!("Creating applied device: {}", servo_name);
-    println!("Using device configuration at: {}", resource_location);
+    info!("Creating applied device: {}", servo_name);
+    info!("Using device configuration at: {}", resource_location);
     let file = match File::open(resource_location.clone()) {
         Ok(f) => f,
         Err(e) => return Err(format!("Unable to read device config: {}", e)),
@@ -380,8 +381,15 @@ pub fn new(device_name: String, servo_name: String) -> Result<AppliedDevice, Str
 
     // Get device coupler information from the device config yaml and connect to the coupler
     let coupler_raw = &device_conf["device"][servo_name.as_str()];
-    let coupler = coupler_raw.as_str().unwrap_or("127.0.0.1");
-    println!("Connecting to coupler at {}", coupler);
+    let coupler = match coupler_raw.as_str() {
+        Some(s) => s,
+        _ => {
+            warn!("Using default coupler IP of 127.0.0.1");
+            "127.0.0.1"
+        }
+    };
+
+    info!("Connecting to device at {}", coupler);
     let client = match tcp::Transport::new_with_cfg(coupler, tcp_config) {
         Ok(c) => c,
         Err(e) => return Err(format!("Unable to create TCP connection: {}", e)),
