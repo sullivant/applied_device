@@ -351,31 +351,48 @@ impl AppliedDevice {
     }
 }
 
-pub fn new(device_name: String, servo_name: String) -> AppliedDevice {
+pub fn new(device_name: String, servo_name: String) -> Result<AppliedDevice, String> {
+    // The tcp_config object will let us specify a timeout
+    let mut tcp_config = tcp::Config::default();
+    tcp_config.tcp_connect_timeout = Some(time::Duration::from_millis(1000));
+
+    // The resource location is pretty standard
     let resource_location: String = format!("./thingy/resources/{}.yaml", device_name);
     println!("Creating applied device: {}", servo_name);
     println!("Using device configuration at: {}", resource_location);
-    let file = File::open(resource_location.clone()).expect("Unable to open file.");
+    let file = match File::open(resource_location.clone()) {
+        Ok(f) => f,
+        Err(e) => return Err(format!("Unable to read device config: {}", e)),
+    };
+
     let mut buf_reader = BufReader::new(file);
     let mut contents = String::new();
     buf_reader
         .read_to_string(&mut contents)
         .expect("Unable to read input file.");
 
-    let device_yaml = YamlLoader::load_from_str(&contents).unwrap();
+    let device_yaml = match YamlLoader::load_from_str(&contents) {
+        Ok(y) => y,
+        Err(e) => return Err(format!("Unable to parse config file: {}", e)),
+    };
+
     let device_conf = &device_yaml[0];
 
-    // Get device coupler information
+    // Get device coupler information from the device config yaml and connect to the coupler
     let coupler_raw = &device_conf["device"][servo_name.as_str()];
     let coupler = coupler_raw.as_str().unwrap_or("127.0.0.1");
-    let client = tcp::Transport::new(coupler).unwrap();
+    println!("Connecting to coupler at {}", coupler);
+    let client = match tcp::Transport::new_with_cfg(coupler, tcp_config) {
+        Ok(c) => c,
+        Err(e) => return Err(format!("Unable to create TCP connection: {}", e)),
+    };
 
-    AppliedDevice {
+    Ok(AppliedDevice {
         servo_name: servo_name.to_string(),
         servo_address: coupler.to_string(),
         client: client,
         resource_location: resource_location,
         servo_status: Vec::new(),
         servo_alarm: Vec::new(),
-    }
+    })
 }
