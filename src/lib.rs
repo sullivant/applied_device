@@ -1,6 +1,6 @@
 extern crate modbus;
 
-use log::{info, warn};
+use log::{error, info, warn};
 use modbus::tcp;
 use modbus::Client;
 use std::fs::File;
@@ -150,7 +150,7 @@ impl AppliedDevice {
         }
 
         while alarm_present || fault_present {
-            println!(
+            warn!(
                 "Found alarm: {} or fault: {}, trying to reset",
                 alarm_present, fault_present
             );
@@ -158,7 +158,7 @@ impl AppliedDevice {
             std::thread::sleep(time::Duration::from_millis(1000));
 
             if try_count > 2 {
-                println!("!!Unable to reset alarm or fault!!");
+                warn!("!!Unable to reset alarm or fault!!");
                 return;
             }
             try_count = try_count + 1;
@@ -191,7 +191,7 @@ impl AppliedDevice {
         self.reset_alarm_or_fault();
 
         // This will start the actual homing process
-        println!("Starting to home servo: {}", self.servo_name);
+        info!("Starting to home servo: {}", self.servo_name);
         self.write_register(125, 1);
         std::thread::sleep(time::Duration::from_millis(1000));
         self.write_register(EXECUTE_COMMAND, 120);
@@ -200,11 +200,11 @@ impl AppliedDevice {
         // Now we wait until homing is complete or a timer expires and bail.
         let now = Instant::now();
         while self.get_servo_status().contains(&HOMING.to_string()) {
-            println!("Servo status: {:?}", self.get_servo_status());
+            info!("Servo status: {:?}", self.get_servo_status());
             if self.get_servo_status().contains(&ALARM.to_string()) {
-                println!("Got alarm during homing.  Trying to reset.");
+                warn!("Got alarm during homing.  Trying to reset.");
                 self.reset_alarm_or_fault();
-                println!("Restarting homing procedure.");
+                warn!("Restarting homing procedure.");
                 self.write_register(125, 1);
                 std::thread::sleep(time::Duration::from_millis(1000));
                 self.write_register(EXECUTE_COMMAND, 120);
@@ -212,13 +212,13 @@ impl AppliedDevice {
             }
             // We will wait until max homing allowed time
             if now.elapsed().as_secs() > MAX_HOMING_TIME {
-                println!("!!Unable to finish homing procedure!!");
+                warn!("!!Unable to finish homing procedure!!");
                 return;
             }
             std::thread::sleep(time::Duration::from_millis(300));
         }
 
-        println!("Finished homing servo: {}", self.servo_name);
+        info!("Finished homing servo: {}", self.servo_name);
     }
 
     pub fn move_servo(&mut self, accel: u64, decel: u64, velocity: u64, encoder_position: u64) {
@@ -230,7 +230,7 @@ impl AppliedDevice {
         let move1: u64 = encoder_position / MAX_32_BIT;
         let move2: u64 = encoder_position % MAX_32_BIT;
 
-        println!(
+        info!(
             "Moving to position: {} (move 1: {}, move 2: {})",
             encoder_position, move1, move2
         );
@@ -246,7 +246,7 @@ impl AppliedDevice {
         self.write_register(DISTANCE_2, move2);
         std::thread::sleep(time::Duration::from_millis(25));
 
-        println!(
+        info!(
             "D1: {}, D2: {}",
             self.get_register_value(DISTANCE_1),
             self.get_register_value(DISTANCE_2)
@@ -254,6 +254,7 @@ impl AppliedDevice {
 
         // This will start the actual move
         self.write_register(EXECUTE_COMMAND, 103);
+        std::thread::sleep(time::Duration::from_millis(10));
 
         // We can wait until we are in position or freak out if we
         // have not made it in time.
@@ -264,20 +265,20 @@ impl AppliedDevice {
                 break;
             }
             if now.elapsed().as_secs() > MAX_MOVE_TIME {
-                println!("!!Unable to finish requested move!!");
+                error!("!!Unable to finish requested move!!");
                 break;
             }
             std::thread::sleep(time::Duration::from_millis(300));
-            println!("Encoder count (MOVING): {}", self.get_encoder_count());
+            info!("Encoder count (MOVING): {}", self.get_encoder_count());
         }
         if !self.in_range(encoder_position) {
-            println!(
+            warn!(
                 "Unable to reach requested encoder position of {} (actual: {})",
                 encoder_position,
                 self.get_encoder_count()
             );
         } else {
-            println!("Encoder count (FINAL): {}", self.get_encoder_count(),);
+            info!("Encoder count (FINAL): {}", self.get_encoder_count(),);
         }
     }
 
@@ -301,6 +302,23 @@ impl AppliedDevice {
         std::thread::sleep(time::Duration::from_millis(1000));
     }
 
+    // Issues the disconnect commands to the device to allow for connection
+    // by another client
+    pub fn shutdown(&mut self) {
+        info!("Issuing disconnect commands");
+        self.write_register(125, 1);
+        std::thread::sleep(time::Duration::from_millis(10));
+
+        self.write_register(EXECUTE_COMMAND, 254);
+        std::thread::sleep(time::Duration::from_millis(10));
+
+        self.write_register(125, 0);
+        std::thread::sleep(time::Duration::from_millis(10));
+        self.write_register(EXECUTE_COMMAND, 254);
+        std::thread::sleep(time::Duration::from_millis(10));
+        info!("Done disconnecting.");
+    }
+
     pub fn write_register(&mut self, register: u16, value: u64) {
         self.client
             .write_single_register(register, value as u16)
@@ -319,7 +337,7 @@ impl AppliedDevice {
     }
 
     pub fn dump_registers(&mut self) {
-        println!("Dumping registers up to {}", MAX_REGISTER);
+        info!("Dumping registers up to {}", MAX_REGISTER);
         for (n, i) in self
             .client
             .read_holding_registers(0, MAX_REGISTER)
@@ -327,9 +345,9 @@ impl AppliedDevice {
             .iter()
             .enumerate()
         {
-            println!("Register {}: {}", n, i);
+            info!("Register {}: {}", n, i);
         }
-        println!("Done reading registers.");
+        info!("Done reading registers.");
     }
 
     pub fn get_name(&mut self) -> &String {
