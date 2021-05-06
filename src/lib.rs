@@ -6,8 +6,8 @@ use modbus::Client;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
-use std::time;
 use std::time::Instant;
+use std::{fmt, time};
 use yaml_rust::YamlLoader;
 
 static ALARM_REG: u16 = 0;
@@ -88,6 +88,16 @@ pub struct AppliedDevice {
     servo_alarm: Vec<String>,
 }
 
+impl fmt::Display for AppliedDevice {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "For applied device {} using address of: {}",
+            &self.servo_name, &self.servo_address
+        )
+    }
+}
+
 impl AppliedDevice {
     pub fn get_encoder_count(&mut self) -> u64 {
         let x: u16 = *self
@@ -114,9 +124,9 @@ impl AppliedDevice {
         // Reset the current array of servo alarm values
         self.servo_alarm = Vec::new();
 
-        for i in 0..ALARM_CODE_NAMES.len() {
+        for (i, name) in ALARM_CODE_NAMES.iter().enumerate() {
             if read & (1 << i) != 0 {
-                self.servo_status.push(ALARM_CODE_NAMES[i].to_string());
+                self.servo_status.push(name.to_string());
                 // println!("{:16b} & {:16b} = {}", read, (1 << i), ALARM_CODE_NAMES[i]);
             }
         }
@@ -129,9 +139,9 @@ impl AppliedDevice {
         // Reset the current array of servo status values
         self.servo_status = Vec::new();
 
-        for i in 0..STATUS_CODE_NAMES.len() {
+        for (i, name) in STATUS_CODE_NAMES.iter().enumerate() {
             if read & (1 << i) != 0 {
-                self.servo_status.push(STATUS_CODE_NAMES[i].to_string());
+                self.servo_status.push(name.to_string());
                 // println!("{:16b} & {:16b} = {}", read, (1 << i), STATUS_CODE_NAMES[i]);
             }
         }
@@ -161,7 +171,7 @@ impl AppliedDevice {
                 warn!("!!Unable to reset alarm or fault!!");
                 return;
             }
-            try_count = try_count + 1;
+            try_count += 1;
             alarm_present = self.get_servo_status().contains(&ALARM.to_string());
             fault_present = self.get_servo_status().contains(&FAULT.to_string());
         }
@@ -291,7 +301,7 @@ impl AppliedDevice {
         let max_pos = requested_pos + ENCODER_POSITION_RANGE;
         let curr_pos: u64 = self.get_encoder_count();
 
-        return curr_pos >= min_pos && curr_pos <= max_pos;
+        curr_pos >= min_pos && curr_pos <= max_pos
     }
 
     pub fn initialize(&mut self) {
@@ -362,17 +372,14 @@ impl AppliedDevice {
         &self.resource_location
     }
 
-    pub fn to_string(&mut self) -> String {
-        format!(
-            "For applied device {} using address of: {}",
-            &self.servo_name, &self.servo_address
-        )
-    }
-
     pub fn new(device_name: String, servo_name: String) -> Result<AppliedDevice, String> {
         // The tcp_config object will let us specify a timeout
-        let mut tcp_config = tcp::Config::default();
-        tcp_config.tcp_connect_timeout = Some(time::Duration::from_millis(1000));
+        //let mut tcp_config = tcp::Config::default();
+        //tcp_config.tcp_connect_timeout = Some(time::Duration::from_millis(1000));
+        let tcp_config = modbus::Config {
+            tcp_connect_timeout: Some(time::Duration::from_millis(1000)),
+            ..Default::default()
+        };
 
         // The resource location is pretty standard
         let resource_location: String = format!("./thingy/resources/{}.yaml", device_name);
@@ -415,8 +422,8 @@ impl AppliedDevice {
         Ok(AppliedDevice {
             servo_name: servo_name.to_string(),
             servo_address: coupler.to_string(),
-            client: client,
-            resource_location: resource_location,
+            client,
+            resource_location,
             servo_status: Vec::new(),
             servo_alarm: Vec::new(),
         })
