@@ -17,7 +17,7 @@ static ENCODER_POS_2_REG: u16 = 5;
 static MAX_REGISTER: u16 = 56; // The last register we really care about seeing
 static MAX_32_BIT: u64 = 65536;
 static MAX_HOMING_TIME: u64 = 60; // Max allowed time to home servo, in seconds
-static MAX_MOVE_TIME: u64 = 60; // Max allowed time to execute a move, in seconds
+static MAX_MOVE_TIME: u64 = 30; // Max allowed time to execute a move, in seconds
 static ENCODER_POSITION_RANGE: u64 = 1000; // Allowed +/- range value an encoder position
 
 static ACCELERATION: u16 = 27;
@@ -86,6 +86,7 @@ pub struct AppliedDevice {
     resource_location: String, // the location of the configuration file for this device
     servo_status: Vec<String>,
     servo_alarm: Vec<String>,
+    servo_cycle_count: i64, // The count of move cycles this servo has made.
 }
 
 impl fmt::Display for AppliedDevice {
@@ -99,6 +100,10 @@ impl fmt::Display for AppliedDevice {
 }
 
 impl AppliedDevice {
+    pub fn get_servo_cycle_count(&mut self) -> i64 {
+        self.servo_cycle_count
+    }
+
     pub fn get_encoder_count(&mut self) -> u64 {
         let x: u16 = *self
             .client
@@ -279,7 +284,7 @@ impl AppliedDevice {
                 break;
             }
             std::thread::sleep(time::Duration::from_millis(300));
-            info!("Encoder count (MOVING): {}", self.get_encoder_count());
+            //info!("Encoder count (MOVING): {}", self.get_encoder_count());
         }
         if !self.in_range(encoder_position) {
             warn!(
@@ -288,6 +293,7 @@ impl AppliedDevice {
                 self.get_encoder_count()
             );
         } else {
+            self.servo_cycle_count += 1;
             info!("Encoder count (FINAL): {}", self.get_encoder_count(),);
         }
     }
@@ -426,6 +432,7 @@ impl AppliedDevice {
             resource_location,
             servo_status: Vec::new(),
             servo_alarm: Vec::new(),
+            servo_cycle_count: 0i64,
         })
     }
 }
